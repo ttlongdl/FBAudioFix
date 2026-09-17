@@ -7,3 +7,5 @@ Maintainer: ttlongdl
 Author: ttlongdl
 Section: Tweaks
 Depends: mobilesubstrate (>= 0.9.5000)
+
+Homepage: https://github.com/ttlongdl/FBAudioFix
