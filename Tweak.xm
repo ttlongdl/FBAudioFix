@@ -14,6 +14,9 @@ static BOOL gAllowedExclusivePlayback = NO;
 static NSTimeInterval gLastExclusivePlayback = 0.0;
 static NSTimeInterval gSuppressPlaybackUntil = 0.0;
 static BOOL gMediaControllerAppearedAfterPlayback = NO;
+static BOOL gExclusiveBeforeResignActive = NO;
+static BOOL gEnteredBackgroundAfterResign = NO;
+static NSTimeInterval gResumeExclusiveIntentUntil = 0.0;
 
 static void (*oSendEvent)(UIApplication *, SEL, UIEvent *) = NULL;
 static BOOL (*oCategoryError)(AVAudioSession *, SEL, AVAudioSessionCategory, NSError **) = NULL;
@@ -28,7 +31,7 @@ static void (*oStoryBucketViewDidDisappear)(UIViewController *, SEL, BOOL) = NUL
 static NSString *FBLogPath(void) {
     NSArray<NSString *> *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     if (paths.count == 0) return nil;
-    return [paths.firstObject stringByAppendingPathComponent:@"FBAudioFix-v0.3.16.txt"];
+    return [paths.firstObject stringByAppendingPathComponent:@"FBAudioFix-v0.3.17.txt"];
 }
 
 static void FBLog(NSString *format, ...) NS_FORMAT_FUNCTION(1,2);
@@ -83,7 +86,8 @@ static inline BOOL FBShouldSuppressPlayback(AVAudioSession *session,
 
     NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
     BOOL reelsIntent = gReelsIntentUntil > now;
-    if (reelsIntent) {
+    BOOL resumeExclusiveIntent = gResumeExclusiveIntentUntil > now;
+    if (reelsIntent || resumeExclusiveIntent) {
         return NO;
     }
 
@@ -450,12 +454,16 @@ static void FBRestoreAmbientAndRelease(NSString *reason) {
 
 static void FBWillResignActive(NSNotification *note) {
     (void)note;
+    gExclusiveBeforeResignActive = gAllowedExclusivePlayback;
+    gEnteredBackgroundAfterResign = NO;
     FBLog(@"APP willResignActive exclusiveState=%@",
           gAllowedExclusivePlayback ? @"YES" : @"NO");
 }
 
 static void FBDidEnterBackground(NSNotification *note) {
     (void)note;
+    gEnteredBackgroundAfterResign = YES;
+    gResumeExclusiveIntentUntil = 0.0;
     FBLog(@"APP didEnterBackground exclusiveState=%@",
           gAllowedExclusivePlayback ? @"YES" : @"NO");
     FBRestoreAmbientAndRelease(@"didEnterBackground");
@@ -463,8 +471,17 @@ static void FBDidEnterBackground(NSNotification *note) {
 
 static void FBDidBecomeActive(NSNotification *note) {
     (void)note;
-    FBLog(@"APP didBecomeActive exclusiveState=%@",
-          gAllowedExclusivePlayback ? @"YES" : @"NO");
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    BOOL reclaim = gExclusiveBeforeResignActive && !gEnteredBackgroundAfterResign;
+    if (reclaim) {
+        gResumeExclusiveIntentUntil = now + 2.0;
+    }
+    FBLog(@"APP didBecomeActive exclusiveState=%@ reclaimExclusive=%@ window=%.1f",
+          gAllowedExclusivePlayback ? @"YES" : @"NO",
+          reclaim ? @"YES" : @"NO",
+          reclaim ? 2.0 : 0.0);
+    gExclusiveBeforeResignActive = NO;
+    gEnteredBackgroundAfterResign = NO;
 }
 
 
@@ -586,7 +603,9 @@ static void hStoryBucketViewDidDisappear(UIViewController *vc, SEL cmd, BOOL ani
               beingDismissed ? @"YES" : @"NO",
               detached ? @"YES" : @"NO");
 
-        if (!stillVisible && (beingDismissed || detached)) {
+        // A bucket may become detached while Facebook swaps Story internals.
+        // Only an actual UIKit dismissal is authoritative enough to release audio.
+        if (!stillVisible && beingDismissed) {
             FBReleaseOnNewsFeedReturn(@"FBSnacksBucketViewController dismissed");
         }
     });
@@ -606,7 +625,7 @@ static void InitFBAudioFix(void) {
 
         NSString *path = FBLogPath();
         if (path) [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
-        FBLog(@"INIT FBAudioFix v0.3.16");
+        FBLog(@"INIT FBAudioFix v0.3.17");
 
         NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
         [nc addObserverForName:UIApplicationWillResignActiveNotification
