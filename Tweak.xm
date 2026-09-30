@@ -23,11 +23,12 @@ static BOOL (*oCategoryModeRouteOptions)(AVAudioSession *, SEL, AVAudioSessionCa
 
 static void (*oVCViewDidAppear)(UIViewController *, SEL, BOOL) = NULL;
 static void (*oVCViewDidDisappear)(UIViewController *, SEL, BOOL) = NULL;
+static void (*oStoryBucketViewDidDisappear)(UIViewController *, SEL, BOOL) = NULL;
 
 static NSString *FBLogPath(void) {
     NSArray<NSString *> *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     if (paths.count == 0) return nil;
-    return [paths.firstObject stringByAppendingPathComponent:@"FBAudioFix-v0.3.14.txt"];
+    return [paths.firstObject stringByAppendingPathComponent:@"FBAudioFix-v0.3.15.txt"];
 }
 
 static void FBLog(NSString *format, ...) NS_FORMAT_FUNCTION(1,2);
@@ -554,6 +555,37 @@ static void hVCViewDidDisappear(UIViewController *vc, SEL cmd, BOOL animated) {
           name, parent, presenting, navTop);
 }
 
+static void hStoryBucketViewDidDisappear(UIViewController *vc, SEL cmd, BOOL animated) {
+    oStoryBucketViewDidDisappear(vc, cmd, animated);
+
+    if (!gAllowedExclusivePlayback) return;
+
+    // Switching between Story items only replaces media/container children.
+    // The bucket viewer itself disappearing means the Story surface is closing.
+    // Defer one run-loop turn so UIKit has finished the dismissal before releasing
+    // Facebook's exclusive audio session and notifying background audio to resume.
+    __weak UIViewController *weakVC = vc;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIViewController *strongVC = weakVC;
+        if (!strongVC || !gAllowedExclusivePlayback) return;
+
+        BOOL stillVisible = strongVC.viewIfLoaded.window != nil;
+        BOOL beingDismissed = strongVC.isBeingDismissed ||
+                              strongVC.navigationController.isBeingDismissed;
+        BOOL detached = strongVC.presentingViewController == nil &&
+                        strongVC.parentViewController == nil;
+
+        FBLog(@"STORY BUCKET DISAPPEAR visible=%@ beingDismissed=%@ detached=%@",
+              stillVisible ? @"YES" : @"NO",
+              beingDismissed ? @"YES" : @"NO",
+              detached ? @"YES" : @"NO");
+
+        if (!stillVisible && (beingDismissed || detached)) {
+            FBReleaseOnNewsFeedReturn(@"FBSnacksBucketViewController dismissed");
+        }
+    });
+}
+
 static void FBHook(Class cls, SEL sel, IMP replacement, IMP *original) {
     Method method = class_getInstanceMethod(cls, sel);
     if (!method) return;
@@ -568,7 +600,7 @@ static void InitFBAudioFix(void) {
 
         NSString *path = FBLogPath();
         if (path) [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
-        FBLog(@"INIT FBAudioFix v0.3.14");
+        FBLog(@"INIT FBAudioFix v0.3.15");
 
         NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
         [nc addObserverForName:UIApplicationWillResignActiveNotification
@@ -602,6 +634,13 @@ static void InitFBAudioFix(void) {
                    (IMP)hVCViewDidAppear, (IMP *)&oVCViewDidAppear);
             FBHook(vcClass, @selector(viewDidDisappear:),
                    (IMP)hVCViewDidDisappear, (IMP *)&oVCViewDidDisappear);
+        }
+
+        Class storyBucketClass = objc_getClass("FBSnacksBucketViewController");
+        if (storyBucketClass) {
+            FBHook(storyBucketClass, @selector(viewDidDisappear:),
+                   (IMP)hStoryBucketViewDidDisappear,
+                   (IMP *)&oStoryBucketViewDidDisappear);
         }
 
         Class audioClass = objc_getClass("AVAudioSession");
