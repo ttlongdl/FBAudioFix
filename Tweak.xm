@@ -28,7 +28,7 @@ static void (*oStoryBucketViewDidDisappear)(UIViewController *, SEL, BOOL) = NUL
 static NSString *FBLogPath(void) {
     NSArray<NSString *> *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     if (paths.count == 0) return nil;
-    return [paths.firstObject stringByAppendingPathComponent:@"FBAudioFix-v0.3.15.txt"];
+    return [paths.firstObject stringByAppendingPathComponent:@"FBAudioFix-v0.3.16.txt"];
 }
 
 static void FBLog(NSString *format, ...) NS_FORMAT_FUNCTION(1,2);
@@ -177,9 +177,13 @@ static BOOL FBIsReelsBottomTab(UIView *view) {
     UIView *cursor = view;
     for (NSUInteger i = 0; cursor && i < 8; i++) {
         NSString *name = NSStringFromClass([cursor class]);
-        if ([name isEqualToString:@"FBTabBarItemDefaultView"]) {
+        if ([name isEqualToString:@"FBTabBarItemDefaultView"] ||
+            [name isEqualToString:@"FBFloatingTabBar.FBFloatingTabBarItemView"]) {
             NSString *identifier = cursor.accessibilityIdentifier;
-            return [identifier isEqualToString:@"tab-bar-item-2392950137"];
+            NSString *label = cursor.accessibilityLabel ?: @"";
+            if ([identifier isEqualToString:@"tab-bar-item-2392950137"]) return YES;
+            if ([label rangeOfString:@"reel" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                [label rangeOfString:@"video" options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
         }
         cursor = cursor.superview;
     }
@@ -191,6 +195,8 @@ static BOOL FBIsBottomTabTap(UIView *view) {
     for (NSUInteger i = 0; cursor && i < 8; i++) {
         NSString *name = NSStringFromClass([cursor class]);
         if ([name isEqualToString:@"FBTabBarItemDefaultView"] ||
+            [name isEqualToString:@"FBFloatingTabBar.FBFloatingTabBarItemView"] ||
+            [name isEqualToString:@"FBFloatingTabBar"] ||
             [name isEqualToString:@"FBTabBar"]) {
             return YES;
         }
@@ -600,7 +606,7 @@ static void InitFBAudioFix(void) {
 
         NSString *path = FBLogPath();
         if (path) [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
-        FBLog(@"INIT FBAudioFix v0.3.15");
+        FBLog(@"INIT FBAudioFix v0.3.16");
 
         NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
         [nc addObserverForName:UIApplicationWillResignActiveNotification
