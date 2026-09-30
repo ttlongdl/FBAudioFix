@@ -28,36 +28,7 @@ static void (*oVCViewDidAppear)(UIViewController *, SEL, BOOL) = NULL;
 static void (*oVCViewDidDisappear)(UIViewController *, SEL, BOOL) = NULL;
 static void (*oStoryBucketViewDidDisappear)(UIViewController *, SEL, BOOL) = NULL;
 
-static NSString *FBLogPath(void) {
-    NSArray<NSString *> *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-    if (paths.count == 0) return nil;
-    return [paths.firstObject stringByAppendingPathComponent:@"FBAudioFix-v0.3.17.txt"];
-}
-
-static void FBLog(NSString *format, ...) NS_FORMAT_FUNCTION(1,2);
-static void FBLog(NSString *format, ...) {
-    va_list args;
-    va_start(args, format);
-    NSString *body = [[NSString alloc] initWithFormat:format arguments:args];
-    va_end(args);
-
-    NSString *path = FBLogPath();
-    if (!path) return;
-
-    NSString *line = [NSString stringWithFormat:@"%@ %@\n", [NSDate date], body];
-    NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
-
-    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
-        [data writeToFile:path atomically:YES];
-        return;
-    }
-
-    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
-    if (!handle) return;
-    [handle seekToEndOfFile];
-    [handle writeData:data];
-    [handle closeFile];
-}
+static void FBLog(NSString *format, ...) { (void)format; }
 
 static inline BOOL FBIsPlayback(AVAudioSessionCategory category) {
     return [category isEqualToString:AVAudioSessionCategoryPlayback];
@@ -114,62 +85,12 @@ static NSString *FBViewChain(UIView *view) {
     return [parts componentsJoinedByString:@" <- "];
 }
 
-static NSString *FBSafeAccessibilityText(UIView *view) {
-    if (!view) return @"(null)";
-    NSString *identifier = view.accessibilityIdentifier ?: @"";
-    NSString *label = view.accessibilityLabel ?: @"";
-    NSString *value = [view.accessibilityValue isKindOfClass:[NSString class]] ? (NSString *)view.accessibilityValue : @"";
-    return [NSString stringWithFormat:@"id='%@' label='%@' value='%@'", identifier, label, value];
-}
-
-static NSString *FBTabProbeDescription(UIView *view, UITouch *touch) {
-    if (!view) return @"target=(null)";
-
-    NSMutableArray<NSString *> *parts = [NSMutableArray array];
-    UIView *cursor = view;
-    UIView *tabBar = nil;
-
-    for (NSUInteger i = 0; cursor && i < 8; i++) {
-        NSString *name = NSStringFromClass([cursor class]);
-        CGRect f = cursor.frame;
-        NSString *a11y = FBSafeAccessibilityText(cursor);
-        [parts addObject:[NSString stringWithFormat:@"%@ frame=(%.1f,%.1f,%.1f,%.1f) %@",
-                          name, f.origin.x, f.origin.y, f.size.width, f.size.height, a11y]];
-        if ([name isEqualToString:@"FBTabBar"]) tabBar = cursor;
-        cursor = cursor.superview;
-    }
-
-    CGPoint pWindow = [touch locationInView:nil];
-    NSString *tabPoint = @"(n/a)";
-    if (tabBar) {
-        CGPoint pTab = [touch locationInView:tabBar];
-        tabPoint = [NSString stringWithFormat:@"(%.1f,%.1f)", pTab.x, pTab.y];
-    }
-
-    return [NSString stringWithFormat:@"windowPoint=(%.1f,%.1f) tabPoint=%@ responders=%@",
-            pWindow.x, pWindow.y, tabPoint, [parts componentsJoinedByString:@" || "]];
-}
-
 static BOOL FBIsMenuNavigationTap(UIView *view) {
     UIView *cursor = view;
     for (NSUInteger i = 0; cursor && i < 12; i++) {
         NSString *identifier = cursor.accessibilityIdentifier;
         if ([identifier isEqualToString:@"left-nav-button"] ||
             [identifier isEqualToString:@"side-panel-left-nav-button"]) {
-            return YES;
-        }
-        cursor = cursor.superview;
-    }
-    return NO;
-}
-
-static BOOL FBIsInNavigationBar(UIView *view) {
-    UIView *cursor = view;
-    for (NSUInteger i = 0; cursor && i < 12; i++) {
-        NSString *name = NSStringFromClass([cursor class]);
-        if ([name isEqualToString:@"FBNavigationBar"] ||
-            [name isEqualToString:@"FBAnimatedNavigationBar"] ||
-            [name isEqualToString:@"UINavigationBar"]) {
             return YES;
         }
         cursor = cursor.superview;
@@ -257,7 +178,6 @@ static void FBFinishTouch(UITouch *touch) {
                       targetView ? NSStringFromClass([targetView class]) : @"(null)",
                       FBViewChain(targetView));
             }
-            (void)FBTabProbeDescription(targetView, touch);
         } else if (FBIsMenuNavigationTap(targetView)) {
             gLastConfirmedTap = 0.0;
             FBLog(@"MENU TAP ignored duration=%.3f distance=%.1f target=%@ chain=%@",
@@ -265,7 +185,6 @@ static void FBFinishTouch(UITouch *touch) {
                   sqrt(distanceSquared),
                   targetView ? NSStringFromClass([targetView class]) : @"(null)",
                   FBViewChain(targetView));
-            (void)FBTabProbeDescription(targetView, touch);
         } else {
             gLastConfirmedTap = NSProcessInfo.processInfo.systemUptime;
             FBLog(@"TAP confirmed duration=%.3f distance=%.1f target=%@ chain=%@",
@@ -274,7 +193,6 @@ static void FBFinishTouch(UITouch *touch) {
                   targetView ? NSStringFromClass([targetView class]) : @"(null)",
                   FBViewChain(targetView));
             if (FBIsInNavigationBar(targetView)) {
-                (void)FBTabProbeDescription(targetView, touch);
             }
         }
     } else {
@@ -334,12 +252,6 @@ static BOOL hCategoryOptions(AVAudioSession *session, SEL cmd,
 
     if (FBIsPlayback(category)) {
         BOOL recentTap = FBRecentConfirmedTap();
-        gAllowedExclusivePlayback = YES;
-        gLastExclusivePlayback = NSProcessInfo.processInfo.systemUptime;
-        gMediaControllerAppearedAfterPlayback = NO;
-        gAllowedExclusivePlayback = YES;
-        gLastExclusivePlayback = NSProcessInfo.processInfo.systemUptime;
-        gMediaControllerAppearedAfterPlayback = NO;
         gAllowedExclusivePlayback = YES;
         gLastExclusivePlayback = NSProcessInfo.processInfo.systemUptime;
         gMediaControllerAppearedAfterPlayback = NO;
@@ -622,10 +534,6 @@ static void InitFBAudioFix(void) {
     @autoreleasepool {
         gTouchStarts = [NSMapTable weakToStrongObjectsMapTable];
         gTouchStartTimes = [NSMapTable weakToStrongObjectsMapTable];
-
-        NSString *path = FBLogPath();
-        if (path) [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
-        FBLog(@"INIT FBAudioFix v0.3.17");
 
         NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
         [nc addObserverForName:UIApplicationWillResignActiveNotification
