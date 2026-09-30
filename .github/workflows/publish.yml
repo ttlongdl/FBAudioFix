@@ -1,0 +1,55 @@
+name: Publish Release
+
+on:
+  workflow_run:
+    workflows:
+      - "Build Rootless DEB"
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION="$(awk '/^Version:/{print $2; exit}' control)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download package artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            RUN_ID="${{ github.event.workflow_run.id }}"
+          else
+            RUN_ID="$(gh run list --workflow 'Build Rootless DEB' --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          fi
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --dir dist
+          find dist -type f -name '*.deb' -print
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          DEB="$(find dist -type f -name '*.deb' | head -n 1)"
+          test -n "$DEB"
+          ASSET="FBAudioFix-v${VERSION}-rootless.deb"
+          cp "$DEB" "$ASSET"
+          if gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "v${VERSION}" "$ASSET" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "v${VERSION}" "$ASSET" --repo "$GITHUB_REPOSITORY" --title "FBAudioFix v${VERSION}" --notes "Stable rootless release."
+          fi
