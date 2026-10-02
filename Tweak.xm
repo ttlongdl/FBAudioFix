@@ -28,7 +28,58 @@ static void (*oVCViewDidAppear)(UIViewController *, SEL, BOOL) = NULL;
 static void (*oVCViewDidDisappear)(UIViewController *, SEL, BOOL) = NULL;
 static void (*oStoryBucketViewDidDisappear)(UIViewController *, SEL, BOOL) = NULL;
 
-static void FBLog(NSString *format, ...) { (void)format; }
+static NSString *FBLogPath(void) {
+    NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+    if (documents.length == 0) return nil;
+    return [documents stringByAppendingPathComponent:@"FBAudioFix-debug.log"];
+}
+
+static void FBLog(NSString *format, ...) {
+    if (format.length == 0) return;
+
+    va_list args;
+    va_start(args, format);
+    NSString *message = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+
+    NSString *path = FBLogPath();
+    if (path.length == 0) return;
+
+    NSString *line = [NSString stringWithFormat:@"[%10.3f] %@\n",
+                      NSProcessInfo.processInfo.systemUptime, message ?: @""];
+    NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
+
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!handle) {
+        [data writeToFile:path atomically:YES];
+        return;
+    }
+    @try {
+        [handle seekToEndOfFile];
+        [handle writeData:data];
+        [handle closeFile];
+    } @catch (__unused NSException *exception) {
+        @try { [handle closeFile]; } @catch (__unused NSException *ignored) {}
+    }
+}
+
+static void FBLogPlaybackProbe(AVAudioSession *session,
+                               NSString *setter,
+                               AVAudioSessionCategory requestedCategory,
+                               AVAudioSessionCategoryOptions options) {
+    if (!FBIsPlayback(requestedCategory)) return;
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    FBLog(@"PROBE Playback request setter=%@ otherAudio=%@ recentTap=%@ tapAge=%.3f reels=%@ resume=%@ guard=%@ exclusive=%@ options=0x%lx",
+          setter,
+          session.isOtherAudioPlaying ? @"YES" : @"NO",
+          FBRecentConfirmedTap() ? @"YES" : @"NO",
+          gLastConfirmedTap > 0.0 ? now - gLastConfirmedTap : -1.0,
+          gReelsIntentUntil > now ? @"YES" : @"NO",
+          gResumeExclusiveIntentUntil > now ? @"YES" : @"NO",
+          FBPostReleaseGuardActive() ? @"YES" : @"NO",
+          gAllowedExclusivePlayback ? @"YES" : @"NO",
+          (unsigned long)options);
+}
 
 static inline BOOL FBIsPlayback(AVAudioSessionCategory category) {
     return [category isEqualToString:AVAudioSessionCategoryPlayback];
@@ -215,6 +266,7 @@ static void hSendEvent(UIApplication *app, SEL cmd, UIEvent *event) {
 
 static BOOL hCategoryError(AVAudioSession *session, SEL cmd,
                            AVAudioSessionCategory category, NSError **error) {
+    FBLogPlaybackProbe(session, @"category1", category, 0);
     if (FBShouldSuppressPlayback(session, category)) {
         FBLog(@"Playback SUPPRESS setter=category1 otherAudio=YES recentTap=NO");
         if (error) *error = nil;
@@ -241,6 +293,7 @@ static BOOL hCategoryOptions(AVAudioSession *session, SEL cmd,
                              AVAudioSessionCategory category,
                              AVAudioSessionCategoryOptions options,
                              NSError **error) {
+    FBLogPlaybackProbe(session, @"category2", category, options);
     if (FBShouldSuppressPlayback(session, category)) {
         FBLog(@"Playback SUPPRESS setter=category2 guard=%@ otherAudio=%@ requestedOptions=0x%lx", FBPostReleaseGuardActive() ? @"YES" : @"NO", session.isOtherAudioPlaying ? @"YES" : @"NO",
               (unsigned long)options);
@@ -274,6 +327,7 @@ static BOOL hCategoryModeOptions(AVAudioSession *session, SEL cmd,
                                  AVAudioSessionMode mode,
                                  AVAudioSessionCategoryOptions options,
                                  NSError **error) {
+    FBLogPlaybackProbe(session, @"categoryMode", category, options);
     if (FBShouldSuppressPlayback(session, category)) {
         FBLog(@"Playback SUPPRESS setter=categoryMode guard=%@ otherAudio=%@ requestedOptions=0x%lx", FBPostReleaseGuardActive() ? @"YES" : @"NO", session.isOtherAudioPlaying ? @"YES" : @"NO",
               (unsigned long)options);
@@ -305,6 +359,7 @@ static BOOL hCategoryModeRouteOptions(AVAudioSession *session, SEL cmd,
                                       AVAudioSessionRouteSharingPolicy policy,
                                       AVAudioSessionCategoryOptions options,
                                       NSError **error) {
+    FBLogPlaybackProbe(session, @"categoryModeRoute", category, options);
     if (FBShouldSuppressPlayback(session, category)) {
         FBLog(@"Playback SUPPRESS setter=categoryModeRoute guard=%@ otherAudio=%@ requestedOptions=0x%lx", FBPostReleaseGuardActive() ? @"YES" : @"NO", session.isOtherAudioPlaying ? @"YES" : @"NO",
               (unsigned long)options);
@@ -530,6 +585,11 @@ static void FBHook(Class cls, SEL sel, IMP replacement, IMP *original) {
 __attribute__((constructor))
 static void InitFBAudioFix(void) {
     @autoreleasepool {
+        NSString *logPath = FBLogPath();
+        if (logPath.length > 0) {
+            [[NSFileManager defaultManager] removeItemAtPath:logPath error:nil];
+        }
+        FBLog(@"=== FBAudioFix 0.3.18-debug1 probe start ===");
         gTouchStarts = [NSMapTable weakToStrongObjectsMapTable];
         gTouchStartTimes = [NSMapTable weakToStrongObjectsMapTable];
 
