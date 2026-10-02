@@ -63,23 +63,6 @@ static void FBLog(NSString *format, ...) {
     }
 }
 
-static void FBLogPlaybackProbe(AVAudioSession *session,
-                               NSString *setter,
-                               AVAudioSessionCategory requestedCategory,
-                               AVAudioSessionCategoryOptions options) {
-    if (!FBIsPlayback(requestedCategory)) return;
-    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
-    FBLog(@"PROBE Playback request setter=%@ otherAudio=%@ recentTap=%@ tapAge=%.3f reels=%@ resume=%@ guard=%@ exclusive=%@ options=0x%lx",
-          setter,
-          session.isOtherAudioPlaying ? @"YES" : @"NO",
-          FBRecentConfirmedTap() ? @"YES" : @"NO",
-          gLastConfirmedTap > 0.0 ? now - gLastConfirmedTap : -1.0,
-          gReelsIntentUntil > now ? @"YES" : @"NO",
-          gResumeExclusiveIntentUntil > now ? @"YES" : @"NO",
-          FBPostReleaseGuardActive() ? @"YES" : @"NO",
-          gAllowedExclusivePlayback ? @"YES" : @"NO",
-          (unsigned long)options);
-}
 
 static inline BOOL FBIsPlayback(AVAudioSessionCategory category) {
     return [category isEqualToString:AVAudioSessionCategoryPlayback];
@@ -101,6 +84,25 @@ static inline BOOL FBPostReleaseGuardActive(void) {
 static inline void FBArmPostReleaseGuard(NSTimeInterval seconds) {
     gSuppressPlaybackUntil = NSProcessInfo.processInfo.systemUptime + seconds;
 }
+
+static void FBLogPlaybackProbe(AVAudioSession *session,
+                               NSString *setter,
+                               AVAudioSessionCategory requestedCategory,
+                               AVAudioSessionCategoryOptions options) {
+    if (!FBIsPlayback(requestedCategory)) return;
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    FBLog(@"PROBE Playback request setter=%@ otherAudio=%@ recentTap=%@ tapAge=%.3f reels=%@ resume=%@ guard=%@ exclusive=%@ options=0x%lx",
+          setter,
+          session.isOtherAudioPlaying ? @"YES" : @"NO",
+          FBRecentConfirmedTap() ? @"YES" : @"NO",
+          gLastConfirmedTap > 0.0 ? now - gLastConfirmedTap : -1.0,
+          gReelsIntentUntil > now ? @"YES" : @"NO",
+          gResumeExclusiveIntentUntil > now ? @"YES" : @"NO",
+          FBPostReleaseGuardActive() ? @"YES" : @"NO",
+          gAllowedExclusivePlayback ? @"YES" : @"NO",
+          (unsigned long)options);
+}
+
 
 static inline BOOL FBShouldSuppressPlayback(AVAudioSession *session,
                                             AVAudioSessionCategory requestedCategory) {
