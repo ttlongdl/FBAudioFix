@@ -1,47 +1,34 @@
 # FBAudioFix
 
-A rootless iOS tweak focused on Facebook's `AVAudioSession` behavior.
+Standalone rootless iOS tweak for Facebook audio-session arbitration. Version **0.3.19**, ported from the tested **Story Audio Intent v2.1** logic in [Facebook-Plus `next`](https://github.com/ttlongdl/Facebook-Plus/tree/next/addons).
 
-Facebook can occasionally switch to an exclusive Playback audio session while the user is only browsing the feed, interrupting audio from apps such as YouTube. FBAudioFix suppresses those passive Playback transitions while preserving intentional Facebook media playback.
+## Behavior
 
-## Current behavior
-
-- Keeps background audio alive during passive Facebook feed browsing.
-- Ignores ordinary Facebook bottom-tab taps as media intent.
-- Recognizes the Facebook Reels tab semantically and grants it a dedicated 3-second media-intent window.
-- Preserves intentional playback when the user opens/taps Facebook video.
-- Releases Facebook's exclusive audio state when returning to News Feed.
-- Ignores the Home navigation Menu button as media intent.
-- Includes a short post-release guard to prevent delayed Facebook Playback requests from immediately reclaiming the audio session.
-
-## Tested
-
-Primary development/testing:
-- Facebook 578.1.0
-- iOS 17.0, Dopamine rootless
-- Injected dylib workflow
-
-Additional validation:
-- iPhone 17 Pro Max / iOS 27
-- dylib injected into Facebook, dumped as IPA, then signed/installed with Feather
-
-Because Facebook changes internal UI classes and accessibility identifiers over time, future Facebook versions may require updates.
+- Prevents passive News Feed autoplay from taking exclusive audio focus from YouTube and other background audio apps.
+- Allows intentional Facebook media playback from video taps, Reels tab and supported inbound video/deep links.
+- Handles Story audio intent, Story mute/unmute and continuity through Story changes, media reloading and Home → Facebook transitions.
+- Recognizes taps on Story tiles before Story viewer appears, allowing explicit Story launches to bypass the short News Feed post-release guard.
+- Releases audio focus on leaving media for News Feed or putting Facebook in background.
+- Honors Story start-with-sound behavior; no Facebook settings override is required.
 
 ## Build
 
-Requires Theos and an iOS SDK.
+Requires Theos, iOS SDK and rootless toolchain:
 
 ```sh
 make clean
-rm -rf .theos
 make package THEOS_PACKAGE_SCHEME=rootless
 ```
 
-The package is built for `iphoneos-arm64`.
+Outputs an `iphoneos-arm64` DEB. `FBAudioFix.dylib` can also be injected into a Facebook IPA. No preference bundle.
 
-## Injection
+## Release notes
 
-The built `FBAudioFix.dylib` can also be injected directly into Facebook. The tweak is filtered to the Facebook app and does not need a preference bundle.
+This standalone release removes file-based probe logging, Story UI scanning and diagnostic snapshots, while retaining the audio, tap, Story lifecycle, Reels, inbound link, and session arbitration hooks from the tested integrated v2.1.
+
+**Important:** Do not enable two copies of the audio fix at the same time (for example this standalone tweak alongside a Facebook Plus build that already bundles FBAudioFix). Double-hooking `AVAudioSession` can cause unpredictable behavior.
+
+Verified behavior is based on real-world user tests, not exhaustive compatibility testing. Facebook internal UI structures can change in later releases.
 
 ## License
 
