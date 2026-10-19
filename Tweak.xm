@@ -688,7 +688,6 @@ static void hVCViewDidDisappear(UIViewController *vc, SEL cmd, BOOL animated) {
     }
     oVCViewDidDisappear(vc, cmd, animated);
 
-    NSString *storyProbeName = NSStringFromClass([vc class]);
     if (!gAllowedExclusivePlayback) return;
 
     NSString *name = NSStringFromClass([vc class]);
