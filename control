@@ -1,8 +1,8 @@
 Package: com.ttlongdl.fbaudiofix
 Name: FBAudioFix
-Version: 0.3.18-debug1
+Version: 0.3.19
 Architecture: iphoneos-arm64
-Description: Prevents passive Facebook browsing from interrupting background audio while preserving intentional Facebook media playback.
+Description: Prevents passive Facebook audio interruption; preserves intentional Reels, Stories, video and deep-link playback.
 Maintainer: ttlongdl
 Author: ttlongdl
 Section: Tweaks
