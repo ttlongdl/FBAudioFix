@@ -1,35 +1,69 @@
 # FBAudioFix
 
-Standalone rootless iOS tweak for Facebook audio-session arbitration. Version **0.3.20**, ported from the tested **Story Audio Intent v2.1** logic in [Facebook-Plus `next`](https://github.com/ttlongdl/Facebook-Plus/tree/next/addons).
+[![Release](https://img.shields.io/github/v/release/ttlongdl/FBAudioFix?label=release)](https://github.com/ttlongdl/FBAudioFix/releases)
+![Platform](https://img.shields.io/badge/iOS-17.0%2B-blue)
+![Theos](https://img.shields.io/badge/Theos-rootless-informational)
 
-## Behavior
+**FBAudioFix v0.3.20** is a standalone iOS tweak that manages Facebook's audio-session behavior so passive autoplay does not unnecessarily interrupt music, podcasts, or YouTube playing in another app.
 
-- Prevents passive News Feed autoplay from taking exclusive audio focus from YouTube and other background audio apps.
-- Allows intentional Facebook media playback from video taps, Reels tab and supported inbound video/deep links.
-- Handles Story audio intent, Story mute/unmute and continuity through Story changes, media reloading and Home → Facebook transitions.
-- Recognizes taps on Story tiles before Story viewer appears, allowing explicit Story launches to bypass the short News Feed post-release guard.
-- Recognizes deliberate News Feed video taps and allows reopening the same video during the post-release guard without mixing with YouTube audio.
-- Releases audio focus on leaving media for News Feed or putting Facebook in background.
-- Honors Story start-with-sound behavior; no Facebook settings override is required.
+The goal is simple: **passive Facebook playback should leave other audio alone; intentional Facebook playback should be allowed to take audio focus.**
 
-## Build
+## What it does
 
-Requires Theos, iOS SDK and rootless toolchain:
+| Scenario | Intended behavior |
+| --- | --- |
+| YouTube/music playing → browse Facebook News Feed | Passive/autoplay Feed videos do not take exclusive audio focus |
+| YouTube/music playing → deliberately open a Feed video | Facebook video can take audio focus and interrupt the other app |
+| Return from a Feed video → reopen the same video quickly | Explicit tap is honored even during the short post-release guard; prevents dual-audio regression |
+| YouTube/music playing → deliberately open Reels | Intentional Reels playback is allowed |
+| YouTube/music playing → open a Story | Explicit Story opening is recognized, including taps before the Story viewer appears |
+| Navigate between Stories, mute/unmute, or resume Facebook | Maintains Story audio intent and continuity |
+| Leave media for News Feed or background Facebook | Releases Facebook's exclusive audio focus where appropriate |
+| Open supported video/deep links | Preserves intentional playback behavior |
+
+### Why the Feed reopen fix matters
+
+After leaving a video, FBAudioFix briefly guards against passive News Feed autoplay stealing audio focus again. In earlier logic, quickly tapping the **same** video a second time could be mistaken for passive autoplay, allowing Facebook and YouTube to play together.
+
+**v0.3.20** adds a narrowly scoped **Feed Video Open Intent**: a confirmed tap on Facebook's video playback container can bypass that guard for a short **1.5-second** intent window. General Feed scrolling and unrelated taps do not receive that exception. Existing Story and Reels intent handling is retained.
+
+## Installation
+
+- **Jailbroken device:** Install the rootless DEB from [Releases](https://github.com/ttlongdl/FBAudioFix/releases) with a compatible package manager.
+- **Sideloaded Facebook:** The compiled `FBAudioFix.dylib` can be injected into a compatible Facebook IPA using your own injection/patching workflow.
+
+This tweak has **no settings UI** and does not require changing Facebook's Story start-with-sound preference.
+
+> [!WARNING]
+> Do not load FBAudioFix twice. If your Facebook Plus build already integrates FBAudioFix, **do not also install/inject the standalone copy**. Double-hooking `AVAudioSession` may cause unexpected behavior.
+
+## Build from source
+
+Requirements: Theos, an appropriate iOS SDK, and an arm64/rootless-capable toolchain.
 
 ```sh
+git clone https://github.com/ttlongdl/FBAudioFix.git
+cd FBAudioFix
 make clean
 make package THEOS_PACKAGE_SCHEME=rootless
 ```
 
-Outputs an `iphoneos-arm64` DEB. `FBAudioFix.dylib` can also be injected into a Facebook IPA. No preference bundle.
+The resulting `iphoneos-arm64` DEB is written to `packages/`. Source builds use `Tweak.xm` and target Facebook as the injection process.
 
-## Release notes
+## v0.3.20 release notes
 
-This standalone release includes the tested explicit Feed video reopen fix and removes file-based probe logging, Story UI scanning and diagnostic snapshots, while retaining the audio, tap, Story lifecycle, Reels, inbound link, and session arbitration hooks from the tested integrated v2.1.
+- Fixed the rapid **Feed video → back → reopen same video** case while another app is playing audio.
+- Kept the intentional playback rules for **Stories, Reels, and supported deep links**.
+- Removed file-based diagnostic probe logging, Story UI scanning, and diagnostic snapshots from the standalone source.
+- Kept passive News Feed autoplay suppression and audio-focus release behavior.
 
-**Important:** Do not enable two copies of the audio fix at the same time (for example this standalone tweak alongside a Facebook Plus build that already bundles FBAudioFix). Double-hooking `AVAudioSession` can cause unpredictable behavior.
+The implementation was synchronized with the audio logic tested in [Facebook-Plus](https://github.com/ttlongdl/Facebook-Plus). Tests covered Feed reopen, Story and Reels behavior; this is **not** a guarantee of compatibility with every Facebook app version. Facebook's private UI classes and audio behavior may change between releases.
 
-Verified behavior is based on real-world user tests, not exhaustive compatibility testing. Facebook internal UI structures can change in later releases.
+## Project links
+
+- [Latest releases](https://github.com/ttlongdl/FBAudioFix/releases)
+- [Facebook Plus integration](https://github.com/ttlongdl/Facebook-Plus)
+- [Issues and bug reports](https://github.com/ttlongdl/FBAudioFix/issues)
 
 ## License
 
