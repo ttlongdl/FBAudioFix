@@ -6,7 +6,43 @@
 #import <math.h>
 #import <stdarg.h>
 
-static void FBLog(NSString *format, ...) { (void)format; }
+// Diagnostic build: bounded, asynchronous log in the app's shareable Documents folder.
+// Avoid synchronous file I/O on the audio/UI hook path.
+static dispatch_queue_t gFBDiagnosticQueue;
+static NSString *gFBDiagnosticPath;
+static void FBLog(NSString *format, ...) {
+    va_list args;
+    va_start(args, format);
+    NSString *message = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+    if (!message || !gFBDiagnosticQueue || !gFBDiagnosticPath) return;
+    NSTimeInterval uptime = NSProcessInfo.processInfo.systemUptime;
+    NSString *line = [NSString stringWithFormat:@"%.6f %@\\n", uptime, message];
+    dispatch_async(gFBDiagnosticQueue, ^{
+        @autoreleasepool {
+            NSFileManager *fm = NSFileManager.defaultManager;
+            NSDictionary *attributes = [fm attributesOfItemAtPath:gFBDiagnosticPath error:nil];
+            if ([attributes fileSize] > 2 * 1024 * 1024) {
+                NSString *oldPath = [gFBDiagnosticPath stringByAppendingString:@".previous"];
+                [fm removeItemAtPath:oldPath error:nil];
+                [fm moveItemAtPath:gFBDiagnosticPath toPath:oldPath error:nil];
+            }
+            if (![fm fileExistsAtPath:gFBDiagnosticPath])
+                [fm createFileAtPath:gFBDiagnosticPath contents:nil attributes:nil];
+            NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:gFBDiagnosticPath];
+            if (!handle) return;
+            @try {
+                [handle seekToEndOfFile];
+                [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+            } @catch (NSException *exception) {
+                (void)exception;
+            } @finally {
+                [handle closeFile];
+            }
+        }
+    });
+}
+
 static __weak UIViewController *gStoryProbeViewer = nil;
 static BOOL gStoryAudioIntentActive = NO;
 static BOOL FBStoryViewerVisible(void);
@@ -767,7 +803,14 @@ static void FBHook(Class cls, SEL sel, IMP replacement, IMP *original) {
 __attribute__((constructor))
 static void InitFBAudioFix(void) {
     @autoreleasepool {
-        // Production build: diagnostic probe removed.
+        // Diagnostic probe: shareable Documents/FBAudioFix-Diagnostic.log.
+        gFBDiagnosticQueue = dispatch_queue_create("com.ttlongdl.fbaudiofix.diagnostic", DISPATCH_QUEUE_SERIAL);
+        NSString *documents = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents"];
+        [NSFileManager.defaultManager createDirectoryAtPath:documents
+                                withIntermediateDirectories:YES attributes:nil error:nil];
+        gFBDiagnosticPath = [documents stringByAppendingPathComponent:@"FBAudioFix-Diagnostic.log"];
+        FBLog(@"DIAGNOSTIC START version=0.3.20-probe pid=%d", getpid());
+
         gTouchStarts = [NSMapTable weakToStrongObjectsMapTable];
         gTouchStartTimes = [NSMapTable weakToStrongObjectsMapTable];
 
