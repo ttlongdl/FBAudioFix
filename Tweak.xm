@@ -5,6 +5,7 @@
 #import <substrate.h>
 #import <math.h>
 #import <stdarg.h>
+#import <unistd.h>
 
 // Diagnostic build: bounded, asynchronous log in the app's shareable Documents folder.
 // Avoid synchronous file I/O on the audio/UI hook path.
