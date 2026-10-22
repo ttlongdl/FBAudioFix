@@ -18,7 +18,7 @@ static void FBLog(NSString *format, ...) {
     va_end(args);
     if (!message || !gFBDiagnosticQueue || !gFBDiagnosticPath) return;
     NSTimeInterval uptime = NSProcessInfo.processInfo.systemUptime;
-    NSString *line = [NSString stringWithFormat:@"%.6f %@\\n", uptime, message];
+    NSString *line = [NSString stringWithFormat:@"%.6f %@\n", uptime, message];
     dispatch_async(gFBDiagnosticQueue, ^{
         @autoreleasepool {
             NSFileManager *fm = NSFileManager.defaultManager;
