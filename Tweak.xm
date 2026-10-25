@@ -54,6 +54,8 @@ static NSTimeInterval gStoryOpenIntentUntil = 0.0;
 static BOOL gStoryOpenPlaybackObserved = NO;
 
 static NSTimeInterval gLastConfirmedTap = 0.0;
+// Experimental: generic touches are diagnostic only, not proof of media playback intent.
+static NSTimeInterval gPhotoTapUntil = 0.0;
 static NSTimeInterval gReelsIntentUntil = 0.0;
 // Explicit Feed video taps may bypass the short post-release autoplay guard.
 static NSTimeInterval gFeedVideoOpenIntentUntil = 0.0;
@@ -136,6 +138,15 @@ static inline BOOL FBRecentConfirmedTap(void) {
     return gLastConfirmedTap > 0.0 && (now - gLastConfirmedTap) <= 0.85;
 }
 
+static inline BOOL FBExplicitMediaTapActive(void) {
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    return (gFeedVideoOpenIntentUntil > now && FBRecentConfirmedTap()) ||
+           (gReelsIntentUntil > now) ||
+           (gStoryOpenIntentUntil > now) ||
+           (gStoryAudioIntentActive && FBStoryViewerVisible()) ||
+           (gStoryEntryIntentUntil > now && FBStoryViewerVisible());
+}
+
 static inline BOOL FBExternalDeepLinkWindowActive(void) {
     return NSProcessInfo.processInfo.systemUptime < gExternalDeepLinkIntentUntil;
 }
@@ -214,8 +225,15 @@ static inline BOOL FBShouldSuppressPlayback(AVAudioSession *session,
         return NO;
     }
 
-    BOOL suppress = session.isOtherAudioPlaying && !FBRecentConfirmedTap();
-    FBLog(@"DECISION %@ otherAudio=%@ recentTap=%@ category=%@", suppress ? @"suppress" : @"allow", session.isOtherAudioPlaying ? @"YES" : @"NO", FBRecentConfirmedTap() ? @"YES" : @"NO", requestedCategory);
+    BOOL explicitMedia = FBExplicitMediaTapActive();
+    BOOL suppress = session.isOtherAudioPlaying && !explicitMedia;
+    FBLog(@"DECISION %@ reason=%@ otherAudio=%@ recentTap=%@ mediaIntent=%@ photoTap=%@ category=%@",
+          suppress ? @"suppress" : @"allow",
+          suppress ? @"noExplicitMediaIntent" : @"explicitMediaIntentOrNoOtherAudio",
+          session.isOtherAudioPlaying ? @"YES" : @"NO",
+          FBRecentConfirmedTap() ? @"YES" : @"NO",
+          explicitMedia ? @"YES" : @"NO",
+          gPhotoTapUntil > now ? @"YES" : @"NO", requestedCategory);
     return suppress;
 }
 
@@ -369,6 +387,19 @@ static void FBFinishTouch(UITouch *touch) {
         duration <= maxDuration &&
         distanceSquared <= maxDistance * maxDistance) {
         UIView *targetView = touch.view;
+        // Diagnose still-photo taps without granting them audio intent.
+        BOOL photoTap = NO;
+        for (UIView *v = targetView; v; v = v.superview) {
+            if ([NSStringFromClass(v.class) isEqualToString:@"FBPhotoComponentView"]) {
+                photoTap = YES;
+                break;
+            }
+        }
+        if (photoTap) {
+            gPhotoTapUntil = NSProcessInfo.processInfo.systemUptime + 1.0;
+            FBLog(@"PHOTO TAP diagnostic nonMedia=YES target=%@ chain=%@",
+                  NSStringFromClass(targetView.class), FBViewChain(targetView));
+        }
         // A feed Story tile is distinct from passive feed autoplay.
         // Match the actual touch ancestry, not generic taps.
         BOOL storyTile = NO;
@@ -496,7 +527,7 @@ static BOOL hCategoryOptions(AVAudioSession *session, SEL cmd,
         gAllowedExclusivePlayback = YES;
         gLastExclusivePlayback = NSProcessInfo.processInfo.systemUptime;
         gMediaControllerAppearedAfterPlayback = NO;
-        if (recentTap || (gStoryAudioIntentActive && FBStoryViewerVisible()))
+        if (FBExplicitMediaTapActive())
             options &= ~AVAudioSessionCategoryOptionMixWithOthers;
         FBLog(@"Playback ALLOW setter=category2 otherAudio=%@ recentTap=%@ finalOptions=0x%lx",
               session.isOtherAudioPlaying ? @"YES" : @"NO",
@@ -529,7 +560,7 @@ static BOOL hCategoryModeOptions(AVAudioSession *session, SEL cmd,
     if (FBIsPlayback(category)) {
         FBStoryIntentPlaybackAllowed();
         BOOL recentTap = FBRecentConfirmedTap();
-        if (recentTap || (gStoryAudioIntentActive && FBStoryViewerVisible()))
+        if (FBExplicitMediaTapActive())
             options &= ~AVAudioSessionCategoryOptionMixWithOthers;
         FBLog(@"Playback ALLOW setter=categoryMode otherAudio=%@ recentTap=%@ finalOptions=0x%lx",
               session.isOtherAudioPlaying ? @"YES" : @"NO",
@@ -563,7 +594,7 @@ static BOOL hCategoryModeRouteOptions(AVAudioSession *session, SEL cmd,
     if (FBIsPlayback(category)) {
         FBStoryIntentPlaybackAllowed();
         BOOL recentTap = FBRecentConfirmedTap();
-        if (recentTap || (gStoryAudioIntentActive && FBStoryViewerVisible()))
+        if (FBExplicitMediaTapActive())
             options &= ~AVAudioSessionCategoryOptionMixWithOthers;
         FBLog(@"Playback ALLOW setter=categoryModeRoute otherAudio=%@ recentTap=%@ finalOptions=0x%lx",
               session.isOtherAudioPlaying ? @"YES" : @"NO",
